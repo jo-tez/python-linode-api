@@ -125,12 +125,43 @@ class DnsGroup(Group):
         z._populate(result)
         return z
 
+class AccountGroup(Group):
+    def get_current_user(self):
+        resp = self.client.get('/account/users')
+
+        if not 'username' in resp:
+            return resp
+
+        u = User(self.client, resp['username'])
+        u._populate(resp)
+        return u
+
+    def get_events(self, *filters):
+        return self.client._get_and_filter(Event, *filters)
+
+    def mark_last_seen_event(self, event):
+        """
+        Marks event as the last event we have seen.  If event is an int, it is treated
+        as an event_id, otherwise it should be an event object whose id will be used.
+        """
+        last_seen = event if isinstance(event, int) else event.id
+        self.client.post('{}/seen'.format(Event.api_endpoint), model=Event(self.client, last_seen))
+
+class NetworkingGroup(Group):
+    def get_ipv4(self, *filters):
+        return self.client._get_and_filter(IPAddress, *filters)
+
+    def get_ipv6_ranges(self, *filters):
+        return self.client._get_and_filter(IPv6Pool, *filters)
+
 class LinodeClient:
     def __init__(self, token, base_url="https://api.alpha.linode.com/v4"):
         self.base_url = base_url
         self.token = token
         self.linode = LinodeGroup(self)
         self.dns = DnsGroup(self)
+        self.account = AccountGroup(self)
+        self.networking = NetworkingGroup(self)
 
     def _api_call(self, endpoint, model=None, method=None, data=None, filters=None):
         """
