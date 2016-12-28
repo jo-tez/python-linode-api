@@ -1,7 +1,8 @@
 from .. import mappings
 from .filtering import FilterableMetaclass
 
-from future.utils import with_metaclass
+#from future.utils import with_metaclass
+from six import add_metaclass
 from datetime import datetime, timedelta
 import time
 
@@ -35,7 +36,9 @@ class MappedObject:
     def __repr__(self):
         return "Mapping containing {}".format(vars(self).keys())
 
-class Base(object, with_metaclass(FilterableMetaclass)):
+#class Base(object, with_metaclass(FilterableMetaclass)):
+@add_metaclass(FilterableMetaclass)
+class Base(object):
     """
     The Base class knows how to look up api properties of a model, and lazy-load them.
     """
