@@ -4,6 +4,7 @@ import json
 from linode.api import ApiError
 from linode import mappings
 from linode.objects import *
+from linode.objects.filtering import Filter
 from linode.util import PaginatedList
 
 class Group:
@@ -14,20 +15,28 @@ class LinodeGroup(Group):
     def get_distributions(self, *filters):
         return self.client._get_and_filter(Distribution, *filters)
 
-    def get_services(self, *filters):
+    def get_types(self, *filters):
         return self.client._get_and_filter(Service, *filters)
 
     def get_instances(self, *filters):
         return self.client._get_and_filter(Linode, *filters)
 
-    def get_stackscripts(self, *filters):
+    def get_stackscripts(self, *filters, mine_only=False):
+        if mine_only:
+            new_filter = Filter({"mine":True})
+            if filters:
+                filters = [ f for f in filters ]
+                filters[0] = filters[0] & new_filter
+            else:
+                filters = [new_filter]
+
         return self.client._get_and_filter(StackScript, *filters)
 
     def get_kernels(self, *filters):
         return self.client._get_and_filter(Kernel, *filters)
 
     # create things
-    def create_instance(self, service, datacenter, distribution=None, **kwargs):
+    def create_instance(self, ltype, datacenter, distribution=None, **kwargs):
         ret_pass = None
         if distribution and not 'root_pass' in kwargs:
             ret_pass = Linode.generate_root_password()
@@ -48,7 +57,7 @@ class LinodeGroup(Group):
                                     'raw public key of one of these types: {}'.format(accepted_types))
 
         params = {
-             'service': service.id if issubclass(type(service), Base) else service,
+             'type': ltype.id if issubclass(type(ltype), Base) else ltype,
              'datacenter': datacenter.id if issubclass(type(datacenter), Base) else datacenter,
              'distribution': (distribution.id if issubclass(type(distribution), Base) else distribution) if distribution else None,
          }
@@ -153,6 +162,33 @@ class NetworkingGroup(Group):
 
     def get_ipv6_ranges(self, *filters):
         return self.client._get_and_filter(IPv6Pool, *filters)
+
+    def assign_ips(self, datacenter, *assignments):
+        """
+        This takes a set of IPv4 Assignments and moves the IPs where they were
+        asked to go.  Call this with any number of IPAddress.to(Linode) results
+        """
+        for a in assignments:
+            if not 'address' in a or not 'linode_id' in a:
+                raise ValueError("Invalid assignment: {}".format(a))
+        if isinstance(datacenter, Datacenter):
+            datacenter = datacenter.id
+
+        result = self.client.post('/networking/ip-assign', data={
+            "datacenter": datacenter,
+            "assignments": [ a for a in assignments ],
+        })
+
+        if not 'ips' in result:
+            return result
+
+        ips = []
+        for r in result['ips']:
+            i = IPAddress(self.client, r['address'])
+            i._populate(r)
+            ips.append(i)
+
+        return ips
 
 class LinodeClient:
     def __init__(self, token, base_url="https://api.alpha.linode.com/v4"):

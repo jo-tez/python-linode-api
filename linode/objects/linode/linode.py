@@ -1,3 +1,5 @@
+import string
+
 from .. import Base, Property
 from ..base import MappedObject
 from .disk import Disk
@@ -6,9 +8,9 @@ from .backup import Backup
 from .service import Service
 from .. import Datacenter
 from .distribution import Distribution
-from .ipaddress import IPAddress
-from .ip6address import IPv6Address
-from .ip6pool import IPv6Pool
+from ..networking import IPAddress
+from ..networking import IPv6Address
+from ..networking import IPv6Pool
 
 from random import choice
 
@@ -19,7 +21,7 @@ class Linode(Base):
         'id': Property(identifier=True),
         'label': Property(mutable=True, filterable=True),
         'group': Property(mutable=True, filterable=True),
-        'state': Property(volatile=True),
+        'status': Property(volatile=True),
         'created': Property(is_datetime=True),
         'updated': Property(volatile=True, is_datetime=True),
         'total_transfer': Property(),
@@ -28,11 +30,12 @@ class Linode(Base):
         'distribution': Property(relationship=Distribution, filterable=True),
         'disks': Property(derived_class=Disk),
         'configs': Property(derived_class=Config),
-        'services': Property(relationship=Service),
+        'type': Property(relationship=Service),
         'backups': Property(),
         'recent_backups': Property(derived_class=Backup),
-        'ipv4': Property(relationship=IPAddress),
-        'ipv6': Property(relationship=IPv6Address),
+        'ipv4': Property(),
+        'ipv6': Property(),
+        'hypervisor': Property(),
     }
 
     @property
@@ -49,7 +52,7 @@ class Linode(Base):
 
             v4 = []
             for c in result['ipv4']['public'] + result['ipv4']['private']:
-                i = IPAddress(self._client, c['address'], self.id)
+                i = IPAddress(self._client, c['address'])
                 i._populate(c)
                 v4.append(i)
 
@@ -76,23 +79,17 @@ class Linode(Base):
 
             self._set('_ips', ips)
 
-        v4 = []
-        for c in result['ipv4']:
-            i = IPAddress(self._client, c['id'], self.id)
-            i._populate(c)
-            v4.append(i)
-
-        v6 = []
-        for c in result['ipv6']:
-            i = IPv6Address(self._client, c['range'], self.id)
-            i._populate(c)
-            v6.append(i)
-
-        return type('ips_response', (object,), {
-            "ipv4": v4,
-            "ipv6": v6,
-        })()
         return self._ips
+
+    def _populate(self, json):
+        # fixes ipv4 and ipv6 attribute of json to make base._populate work
+        if 'ipv4' in json and 'address' in json['ipv4']:
+            json['ipv4']['id'] = json['ipv4']['address']
+        if 'ipv6' in json and isinstance(json['ipv6'], list):
+            for j in json['ipv6']:
+                j['id'] = j['range']
+
+        Base._populate(self, json)
 
     def boot(self, config=None):
         resp = self._client.post("{}/boot".format(Linode.api_endpoint), model=self, data={'config': config.id} if config else None)
@@ -122,14 +119,16 @@ class Linode(Base):
     # create derived objects
     def create_config(self, kernel, label=None, disks=None, **kwargs):
 
-        disk_list = []
+        disk_map = {}
         if disks:
-            disk_list = [ d.id for d in disks ]
+            hypervisor_prefix = 'sd' if self.hypervisor == 'kvm' else 'xvd'
+            for i in range(0,8):
+                disk_map[hypervisor_prefix + string.ascii_lowercase[i]] = disks[i].id if i < len(disks) else None
 
         params = {
             'kernel': kernel.id if issubclass(type(kernel), Base) else kernel,
             'label': label if label else "{}_config_{}".format(self.label, len(self.configs)),
-            'disks': disk_list,
+            'disks': disk_map,
         }
         params.update(kwargs)
 
@@ -226,7 +225,7 @@ class Linode(Base):
         if not 'id' in result:
             return result
 
-        i = IPAddress(self._client, result['id'], self.id)
+        i = IPAddress(self._client, result['id'])
         i._populate(result)
         return i
 
@@ -252,7 +251,6 @@ class Linode(Base):
         params = {
              'distribution': distribution.id if issubclass(type(distribution), Base) else distribution,
              'root_pass': root_pass,
-             'root_ssh_key': root_ssh_key,
          }
         params.update(kwargs)
 

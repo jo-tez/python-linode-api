@@ -5,6 +5,5 @@ from .stackscript import StackScript
 from .config import Config
 from .distribution import Distribution
 from .backup import Backup
-from .ipaddress import IPAddress
 from .service import Service
 from .ip6pool import IPv6Pool
