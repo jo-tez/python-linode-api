@@ -1,11 +1,15 @@
-import requests
 import json
+import requests
+import pkg_resources
+from datetime import datetime
 
-from linode.api import ApiError
+from linode.errors import ApiError, UnexpectedResponseError
 from linode import mappings
 from linode.objects import *
 from linode.objects.filtering import Filter
 from linode.util import PaginatedList
+
+package_version = pkg_resources.require("linode-api")[0].version,
 
 class Group:
     def __init__(self, client):
@@ -21,14 +25,21 @@ class LinodeGroup(Group):
     def get_instances(self, *filters):
         return self.client._get_and_filter(Linode, *filters)
 
-    def get_stackscripts(self, *filters, mine_only=False):
-        if mine_only:
-            new_filter = Filter({"mine":True})
-            if filters:
-                filters = [ f for f in filters ]
-                filters[0] = filters[0] & new_filter
-            else:
-                filters = [new_filter]
+    def get_stackscripts(self, *filters, **kwargs):
+        # python2 can't handle *args and a single keyword argument, so this is a workaround
+        if 'mine_only' in kwargs:
+            if kwargs['mine_only']:
+                new_filter = Filter({"mine":True})
+                if filters:
+                    filters = [ f for f in filters ]
+                    filters[0] = filters[0] & new_filter
+                else:
+                    filters = [new_filter]
+
+            del kwargs['mine_only']
+
+        if kwargs:
+            raise TypeError("get_stackscripts() got unexpected keyword argument '{}'".format(kwargs.popitem()[0]))
 
         return self.client._get_and_filter(StackScript, *filters)
 
@@ -66,7 +77,7 @@ class LinodeGroup(Group):
         result = self.client.post('/linode/instances', data=params)
 
         if not 'id' in result:
-            return result
+            raise UnexpectedResponseError('Unexpected response when creating linode!', json=result)
 
         l = Linode(self.client, result['id'])
         l._populate(result)
@@ -108,7 +119,7 @@ class LinodeGroup(Group):
         result = self.client.post('/linode/stackscripts', data=params)
 
         if not 'id' in result:
-            return result
+            raise UnexpectedResponseError('Unexpected response when creating StackScript!', json=result)
 
         s = StackScript(self.client, result['id'])
         s._populate(result)
@@ -128,23 +139,13 @@ class DnsGroup(Group):
         result = self.client.post('/dns/zones', data=params)
 
         if not 'id' in result:
-            return result
+            raise UnexpectedResponseError('Unexpected response when creating DNS Zone!', json=result)
 
         z = DnsZone(self.client, result['id'])
         z._populate(result)
         return z
 
 class AccountGroup(Group):
-    def get_current_user(self):
-        resp = self.client.get('/account/users')
-
-        if not 'username' in resp:
-            return resp
-
-        u = User(self.client, resp['username'])
-        u._populate(resp)
-        return u
-
     def get_events(self, *filters):
         return self.client._get_and_filter(Event, *filters)
 
@@ -155,6 +156,95 @@ class AccountGroup(Group):
         """
         last_seen = event if isinstance(event, int) else event.id
         self.client.post('{}/seen'.format(Event.api_endpoint), model=Event(self.client, last_seen))
+
+    def get_profile(self):
+        """
+        Returns this token's user's profile.  This is not a listing endpoint.
+        """
+        result = self.client.get('/account/profile')
+
+        if not 'username' in result:
+            raise UnexpectedResponseError('Unexpected response when getting profile!', json=result)
+
+        p = Profile(self.client, result['username'])
+        p._populate(result)
+        return p
+
+    def get_settings(self):
+        """
+        Resturns the account settings data for this acocunt.  This is not  a
+        listing endpoint.
+        """
+        result = self.client.get('/account/settings')
+
+        if not 'email' in result:
+            raise UnexpectedResponseError('Unexpected response when getting account settings!',
+                    json=result)
+
+        s = AccountSettings(self.client, result['email'])
+        s._populate(result)
+        return s
+
+    def get_oauth_clients(self, *filters):
+        """
+        Returns the OAuth Clients associated to this account
+        """
+        return self.client._get_and_filter(OAuthClient, *filters)
+
+    def create_oauth_client(self, name, redirect_uri, **kwargs):
+        """
+        Make a new OAuth Client and return it
+        """
+        params = {
+            "name": name,
+            "redirect_uri": redirect_uri,
+        }
+        params.update(kwargs)
+
+        result = self.client.post('/account/clients', data=params)
+
+        if not 'id' in result:
+            raise UnexpectedResponseError('Unexpected response when creating OAuth Client!',
+                    json=result)
+
+        c = OAuthClient(self.client, result['id'])
+        c._populate(result)
+        return c
+
+    def get_oauth_tokens(self, *filters):
+        """
+        Returns the OAuth Tokens active for this user
+        """
+        return self.client._get_and_filter(OAuthToken, *filters)
+
+    def create_personal_access_token(self, label=None, expiry=None, scopes=None, **kwargs):
+        """
+        Creates and returns a new Personal Access Token
+        """
+        if label:
+            kwargs['label'] = label
+        if expiry:
+            if isinstance(expiry, datetime):
+                expiry = datetime.strftime(expiry, "%Y-%m-%dT%H:%M:%S")
+            kwargs['expiry'] = expiry
+        if scopes:
+            kwargs['scopes'] = scopes
+
+        result = self.client.post('/account/tokens', data=kwargs)
+
+        if not 'id' in result:
+            raise UnexpectedResponseError('Unexpected response when creating Personal Access '
+                    'Token!', json=result)
+
+        t = OAuthToken(self.client, result['id'])
+        t._populate(result)
+        return t
+
+    def get_users(self, *filters):
+        """
+        Returns a list of users on this account
+        """
+        return self.client._get_and_filter(User, *filters)
 
 class NetworkingGroup(Group):
     def get_ipv4(self, *filters):
@@ -167,6 +257,10 @@ class NetworkingGroup(Group):
         """
         This takes a set of IPv4 Assignments and moves the IPs where they were
         asked to go.  Call this with any number of IPAddress.to(Linode) results
+
+        For example, swapping ips between linode1 and linode2 might look like this:
+            client.networking.assign_ips('newark', ip1.to(linode2), ip2.to(linode1))
+
         """
         for a in assignments:
             if not 'address' in a or not 'linode_id' in a:
@@ -180,7 +274,8 @@ class NetworkingGroup(Group):
         })
 
         if not 'ips' in result:
-            return result
+            raise UnexpectedResponseError('Unexpected response when assigning IPs!',
+                    json=result)
 
         ips = []
         for r in result['ips']:
@@ -191,13 +286,22 @@ class NetworkingGroup(Group):
         return ips
 
 class LinodeClient:
-    def __init__(self, token, base_url="https://api.alpha.linode.com/v4"):
+    def __init__(self, token, base_url="https://api.alpha.linode.com/v4", user_agent=None):
         self.base_url = base_url
+        self._add_user_agent = user_agent
         self.token = token
         self.linode = LinodeGroup(self)
         self.dns = DnsGroup(self)
         self.account = AccountGroup(self)
         self.networking = NetworkingGroup(self)
+
+    @property
+    def _user_agent(self):
+        return '{}python-linode-api/{} {}'.format(
+                '{} '.format(self._add_user_agent) if self._add_user_agent else '',
+                package_version,
+                requests.utils.default_user_agent()
+        )
 
     def _api_call(self, endpoint, model=None, method=None, data=None, filters=None):
         """
@@ -216,6 +320,7 @@ class LinodeClient:
         headers = {
             'Authorization': "token {}".format(self.token),
             'Content-Type': 'application/json',
+            'User-Agent': self._user_agent,
         }
 
         if filters:
@@ -236,7 +341,7 @@ class LinodeClient:
                                 if 'reason' in e.keys() else ''
             except:
                 pass
-            raise ApiError(error_msg, status=r.status_code)
+            raise ApiError(error_msg, status=r.status_code, json=j)
 
         j = r.json()
 

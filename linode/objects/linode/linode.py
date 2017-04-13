@@ -1,5 +1,6 @@
 import string
 
+from ...errors import UnexpectedResponseError
 from .. import Base, Property
 from ..base import MappedObject
 from .disk import Disk
@@ -32,7 +33,6 @@ class Linode(Base):
         'configs': Property(derived_class=Config),
         'type': Property(relationship=Service),
         'backups': Property(),
-        'recent_backups': Property(derived_class=Backup),
         'ipv4': Property(),
         'ipv6': Property(),
         'hypervisor': Property(),
@@ -48,38 +48,100 @@ class Linode(Base):
             result = self._client.get("{}/ips".format(Linode.api_endpoint), model=self)
 
             if not "ipv4" in result:
-                return result
+                raise UnexpectedResponseError('Unexpected response loading IPs', json=result)
 
-            v4 = []
-            for c in result['ipv4']['public'] + result['ipv4']['private']:
+            v4pub = []
+            for c in result['ipv4']['public']:
                 i = IPAddress(self._client, c['address'])
                 i._populate(c)
-                v4.append(i)
+                v4pub.append(i)
+
+            v4pri = []
+            for c in result['ipv4']['private']:
+                i = IPAddress(self._client, c['address'])
+                i._populate(c)
+                v4pri.append(i)
+
+            shared_ips = []
+            for c in result['ipv4']['shared']:
+                i = IPAddress(self._client, c['address'])
+                i._populate(c)
+                shared_ips.append(i)
 
             v6 = []
-            for c in result['ipv6']:
+            for c in result['ipv6']['addresses']:
                 i = IPv6Address(self._client, c['address'])
                 i._populate(c)
-                v6.append(i)
+                addresses.append(i)
 
-            slaac = IPv6Pool(self._client, result['ipv6_ranges']['slaac'])
+            slaac = IPv6Pool(self._client, result['ipv6']['slaac'])
+            link_local = IPv6Pool(self._client, result['ipv6']['link-local'])
 
             pools = []
-            for p in result['ipv6_ranges']['global']:
+            for p in result['ipv6']['global']:
                 pools.append(IPv6Pool(self._client, p['range']))
 
-            pools.append(IPv6Pool(self._client, result['ipv6_ranges']['slaac']))
-            pools.append(IPv6Pool(self._client, result['ipv6_ranges']['link-local']))
-
             ips = MappedObject(**{
-                "ipv4": v4,
-                "ipv6": v6,
-                "ipv6_ranges": pools,
+                "ipv4": {
+                    "public": v4pub,
+                    "private": v4pri,
+                    "shared": shared_ips,
+                },
+                "ipv6": {
+                    "slaac": slaac,
+                    "link_local": link_local,
+                    "pools": pools,
+                    "addresses": v6,
+                },
             })
 
             self._set('_ips', ips)
 
         return self._ips
+
+    @property
+    def available_backups(self):
+        """
+        The backups response contains what backups are available to be restored.
+        """
+        if not hasattr(self, '_avail_backups'):
+            result = self._client.get("{}/backups".format(Linode.api_endpoint), model=self)
+
+            if not 'daily' in result:
+                raise UnexpectedResponseErorr('Unexpected response loading available backups!',
+                        json=result)
+
+            daily = None
+            if result['daily']:
+                daily = Backup(self._client, result['daily']['id'], self.id)
+                daily._populate(result['daily'])
+
+            weekly = []
+            for w in result['weekly']:
+                cur = Backup(self._client, w['id'], self.id)
+                cur._populate(w)
+                weekly.append(w)
+
+            snap = None
+            if result['snapshot']['current']:
+                snap = Backup(self._client, result['snapshot']['current']['id'], self.id)
+                snap._populate(result['snapshot']['current'])
+
+            psnap = None
+            if result['snapshot']['in_progress']:
+                psnap = Backup(self._client, result['snapshot']['in_progress']['id'], self.id)
+                psnap._populate(result['snapshot']['in_progress'])
+
+            self._set('_avail_backups', MappedObject(**{
+                "daily": daily,
+                "weekly": weekly,
+                "snapshot": {
+                    "current": snap,
+                    "in_progress": psnap,
+                }
+            }))
+
+        return self._avail_backups
 
     def _populate(self, json):
         # fixes ipv4 and ipv6 attribute of json to make base._populate work
@@ -90,6 +152,15 @@ class Linode(Base):
                 j['id'] = j['range']
 
         Base._populate(self, json)
+
+    def invalidate(self):
+        """ Clear out cached properties """
+        if hasattr(self, '_avail_backups'):
+            del self._avail_backups
+        if hasattr(self, '_ips'):
+            del self._ips
+
+        Base.invalidate(self)
 
     def boot(self, config=None):
         resp = self._client.post("{}/boot".format(Linode.api_endpoint), model=self, data={'config': config.id} if config else None)
@@ -136,7 +207,7 @@ class Linode(Base):
         self.invalidate()
 
         if not 'id' in result:
-            return result
+            raise UnexpectedResponseError('Unexpected response creating config!', json=result)
 
         c = Config(self._client, result['id'], self.id)
         c._populate(result)
@@ -188,7 +259,7 @@ class Linode(Base):
         self.invalidate()
 
         if not 'id' in result:
-            return result
+            raise UnexpectedResponseError('Unexpected response creating disk!', json=result)
 
         d = Disk(self._client, result['id'], self.id)
         d._populate(result)
@@ -212,7 +283,11 @@ class Linode(Base):
             data={ "label": label })
 
         if not 'id' in result:
-            return result
+            raise UnexpectedResponseError('Unexpected response taking snapshot!', json=result)
+
+        # so the changes show up the next time they're accessed
+        if hasattr(self, '_avail_backups'):
+            del self._avail_backups
 
         b = Backup(self._client, result['id'], self.id)
         b._populate(result)
@@ -223,7 +298,7 @@ class Linode(Base):
                 data={ "type": "public" if public else "private" })
 
         if not 'id' in result:
-            return result
+            raise UnexpectedResponseError('Unexpected response allocating IP!', json=result)
 
         i = IPAddress(self._client, result['id'])
         i._populate(result)
@@ -257,10 +332,63 @@ class Linode(Base):
         result = self._client.post('{}/rebuild'.format(Linode.api_endpoint), model=self, data=params)
 
         if not 'disks' in result:
-            return result
+            raise UnexpectedResponseError('Unexpected response issuing rebuild!', json=result)
 
         self.invalidate()
         if not ret_pass:
             return True
         else:
             return ret_pass
+
+    def rescue(self, *disks):
+        if disks:
+            disks = { x:y for x,y in zip(('sda','sdb'), disks) }
+        else:
+            disks=None
+
+        result = self._client.post('{}/rescue'.format(Linode.api_endpoint), model=self, data=disks)
+
+        return result
+
+    def set_shared_ips(self, *ips):
+        """
+        Takes a list of IP Addresses (either objects or strings) and attempts to
+        set them as the Shared IPs for this Linode
+        """
+        params = []
+        for ip in ips:
+            if isinstance(ip, str):
+                params.append(ip)
+            elif isinstance(ip, IPAddress):
+                params.append(ip.address)
+            else:
+                params.append(str(ip)) # and hope that works
+
+        params = {
+            "ips": params
+        }
+
+        result = self._client.post('{}/ips/sharing'.format(Linode.api_endpoint), model=self,
+                data=params)
+
+        # so the changes show up next time they're accessed
+        if hasattr(self, '_ips'):
+            del self._ips
+
+        return True
+
+    def kvmify(self):
+        """
+        Converts this linode to KVM from Xen
+        """
+        ret = self._client.post('{}/kvmify'.format(Linode.api_endpoint), model=self)
+
+        return True
+
+    @property
+    def stats(self):
+        """
+        Returns the JSON stats for this Linode
+        """
+        # TODO - this would be nicer if we formatted the stats
+        return self._client.get('{}/stats'.format(Linode.api_endpoint), model=self)

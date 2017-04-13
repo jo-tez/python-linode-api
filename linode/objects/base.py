@@ -53,6 +53,8 @@ class Base(object):
             self._set(prop, None)
 
         self._set('id', id)
+        if hasattr(type(self), 'id_attribute'):
+            self._set(getattr(type(self), 'id_attribute'), id)
 
     def __getattribute__(self, name):
         if name in type(self).properties.keys():
