@@ -1,9 +1,9 @@
 from .. import DerivedBase, Property
+from ..base import MappedObject
 from .kernel import Kernel
 from .disk import Disk
 
 class Config(DerivedBase):
-    api_name="configs"
     api_endpoint="/linode/instances/{linode_id}/configs/{id}"
     derived_url_path="configs"
     parent_id_name="linode_id"
@@ -15,28 +15,37 @@ class Config(DerivedBase):
         "created": Property(is_datetime=True),
         "root_device": Property(mutable=True),
         "kernel": Property(relationship=Kernel, mutable=True, filterable=True),
-        "disks": Property(filterable=True),#TODO: mutable=True),
+        "devices": Property(filterable=True),#TODO: mutable=True),
         "initrd": Property(relationship=Disk),
         "updated": Property(),
         "comments": Property(mutable=True, filterable=True),
         "label": Property(mutable=True, filterable=True),
-        "devtmpfs_automount": Property(mutable=True, filterable=True),
-        "root_device_ro": Property(mutable=True, filterable=True),
         "run_level": Property(mutable=True, filterable=True),
         "virt_mode": Property(mutable=True, filterable=True),
-        "ram_limit": Property(mutable=True, filterable=True),
+        "memory_limit": Property(mutable=True, filterable=True),
     }
 
     def _populate(self, json):
         """
-        Override popupate to map the disks more nicely
+        Map devices more nicely while populating.
         """
+        from .volume import Volume
+
         DerivedBase._populate(self, json)
 
-        import linode.mappings as mapper
+        devices = {}
+        for device_index, device in json['devices'].items():
+            if not device:
+                devices[device_index] = None
+                continue
 
-        for key in vars(self.disks):
-            if self.disks.__getattribute__(key):
-                self.disks.__setattr__(key,
-                        mapper.make(self.disks.__getattribute__(key).id,
-                        self._client, parent_id=self.linode_id, cls=Disk))
+            dev = None
+            if 'disk_id' in device and device['disk_id']: # this is a disk
+                dev = Disk.make_instance(device['disk_id'], self._client,
+                        parent_id=self.linode_id)
+            else:
+                dev = Volume.make_instance(device['volume_id'], self._client,
+                        parent_id=self.linode_id)
+            devices[device_index] = dev
+
+        self._set('devices', MappedObject(**devices))

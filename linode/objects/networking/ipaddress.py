@@ -1,7 +1,7 @@
 from .. import Base, Property
+from ..region import Region
 
 class IPAddress(Base):
-    api_name = 'ipv4s'
     api_endpoint = '/networking/ipv4/{address}'
     id_attribute = 'address'
 
@@ -13,6 +13,7 @@ class IPAddress(Base):
         "type": Property(),
         "rdns": Property(mutable=True),
         "linode_id": Property(),
+        "region": Property(slug_relationship=Region, filterable=True),
     }
 
     @property

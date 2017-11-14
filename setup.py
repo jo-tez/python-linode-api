@@ -7,12 +7,18 @@ https://github.com/pypa/sampleproject/blob/master/setup.py
 """
 
 # Always prefer setuptools over distutils
+import sys
 from setuptools import setup, find_packages
 # To use a consistent encoding
 from codecs import open
 from os import path
+from unittest import TestLoader
 
 here = path.abspath(path.dirname(__file__))
+
+def get_test_suite():
+    test_loader = TestLoader()
+    return test_loader.discover('test', pattern='*_test.py')
 
 # Get the long description from the README file
 with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
@@ -24,7 +30,7 @@ setup(
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    version='4.0.10a',
+    version='4.1.4b4',
 
     description='The official python SDK for Linode API v4',
     long_description=long_description,
@@ -46,7 +52,7 @@ setup(
         #   4 - Beta
         #   5 - Production/Stable
         # This is staying in sync with the api's status
-        'Development Status :: 3 - Alpha',
+        'Development Status :: 4 - Beta',
 
         # Indicate who your project is intended for
         'Intended Audience :: Developers',
@@ -78,6 +84,15 @@ setup(
     install_requires=[
         "future",
         "requests",
+    ] if sys.version_info >= (3, 4) else [
+        "future",
+        "requests",
         "enum34",
-    ]
+    ],
+
+    tests_require=[
+        "mock",
+    ],
+
+    test_suite = 'setup.get_test_suite'
 )

@@ -2,7 +2,6 @@ from ...errors import UnexpectedResponseError
 from .. import DerivedBase, Property
 
 class Disk(DerivedBase):
-    api_name = 'disks'
     api_endpoint = '/linode/instances/{linode_id}/disks/{id}'
     derived_url_path = 'disks'
     parent_id_name='linode_id'
@@ -12,7 +11,7 @@ class Disk(DerivedBase):
         'created': Property(is_datetime=True),
         'label': Property(mutable=True, filterable=True),
         'size': Property(filterable=True),
-        'state': Property(filterable=True),
+        'status': Property(filterable=True),
         'filesystem': Property(),
         'updated': Property(is_datetime=True),
         'linode_id': Property(identifier=True),
@@ -25,8 +24,7 @@ class Disk(DerivedBase):
         if not 'id' in result:
             raise UnexpectedResponseError('Unexpected response duplicating disk!', json=result)
 
-        d = Disk(self._client, result['id'], self.linode_id)
-        d._populate(result)
+        d = Disk(self._client, result['id'], self.linode_id, result)
         return d
 
 

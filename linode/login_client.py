@@ -31,7 +31,7 @@ class OAuthScopes:
                 return "linodes:*"
             return "linodes:{}".format(self.name)
 
-    class DnsZones(Enum):
+    class Domains(Enum):
         view = 0
         create = 1
         modify = 2
@@ -40,8 +40,8 @@ class OAuthScopes:
 
         def __repr__(self):
             if(self.name == 'all'):
-                return "dnszones:*"
-            return "dnszones:{}".format(self.name)
+                return "domains:*"
+            return "domains:{}".format(self.name)
 
     class StackScripts(Enum):
         view = 0
@@ -79,9 +79,81 @@ class OAuthScopes:
                 return "tokens:*"
             return "tokens:{}".format(self.name)
 
+    class IPs(Enum):
+        view = 0
+        create = 1
+        modify = 2
+        delete = 3
+        all = 4
+
+        def __repr__(self):
+            if(self.name == 'all'):
+                return "ips:*"
+            return "ips:{}".format(self.name)
+
+    class Tickets(Enum):
+        view = 0
+        create = 1
+        modify = 2
+        delete = 3
+        all = 4
+
+        def __repr__(self):
+            if(self.name == 'all'):
+                return "tickets:*"
+            return "tickets:{}".format(self.name)
+
+    class Clients(Enum):
+        view = 0
+        create = 1
+        modify = 2
+        delete = 3
+        all = 4
+
+        def __repr__(self):
+            if(self.name == 'all'):
+                return "clients:*"
+            return "clients:{}".format(self.name)
+
+    class Account(Enum):
+        view = 0
+        create = 1
+        modify = 2
+        delete = 3
+        all = 4
+
+        def __repr__(self):
+            if(self.name == 'all'):
+                return "account:*"
+            return "account:{}".format(self.name)
+
+    class Events(Enum):
+        view = 0
+        create = 1
+        modify = 2
+        delete = 3
+        all = 4
+
+        def __repr__(self):
+            if(self.name == 'all'):
+                return "events:*"
+            return "events:{}".format(self.name)
+
+    class Volumes(Enum):
+        view = 0
+        create = 1
+        modify = 2
+        delete = 3
+        all = 4
+
+        def __repr__(self):
+            if(self.name == 'all'):
+                return "volumes:*"
+            return "volumes:{}".format(self.name)
+
     _scope_families = {
         'linodes': Linodes,
-        'dnszones': DnsZones,
+        'domains': Domains,
         'stackscripts': StackScripts,
         'users': Users,
         'tokens': Tokens,
@@ -135,7 +207,7 @@ class OAuthScopes:
 
 class LinodeLoginClient:
     def __init__(self, client_id, client_secret,
-            base_url="https://login.alpha.linode.com"):
+            base_url="https://login.linode.com"):
         self.base_url = base_url
         self.client_id = client_id
         self.client_secret = client_secret
@@ -148,6 +220,7 @@ class LinodeLoginClient:
         split = list(urlparse(url))
         params = {
             "client_id": self.client_id,
+            "response_type": "code", # needed for all logins
         }
         if scopes:
             params["scopes"] = OAuthScopes.serialize(scopes)

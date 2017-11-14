@@ -20,19 +20,18 @@ class UserDefinedField():
         return "{}({}): {}".format(self.label, self.field_type.name, self.example)
 
 class StackScript(Base):
-    api_name = 'stackscripts'
     api_endpoint = '/linode/stackscripts/{id}'
     properties = {
         "user_defined_fields": Property(),
         "label": Property(mutable=True, filterable=True),
-        "customer_id": Property(),
         "rev_note": Property(mutable=True),
-        "user_id": Property(),
+        "usernam": Property(filterable=True),
+        "user_gravatar_id": Property(),
         "is_public": Property(mutable=True, filterable=True),
         "created": Property(is_datetime=True),
         "deployments_active": Property(),
         "script": Property(mutable=True),
-        "distributions": Property(relationship=Distribution, mutable=True, filterable=True),
+        "distributions": Property(mutable=True, filterable=True), # TODO make slug_relationship
         "deployments_total": Property(),
         "description": Property(mutable=True, filterable=True),
         "updated": Property(is_datetime=True),
@@ -56,12 +55,14 @@ class StackScript(Base):
                 t = UserDefinedFieldType.select_many
                 choices = udf.manyof.split(',')
 
-            mapped_udfs.append(UserDefinedField(udf.name, udf.label, udf.example, t, \
-                    choices=choices))
+            mapped_udfs.append(UserDefinedField(udf.name,
+                    udf.label if hasattr(udf, 'label') else None,
+                    udf.example if hasattr(udf, 'example') else None,
+                    t, choices=choices))
 
         self._set('user_defined_fields', mapped_udfs)
-        for d in self.distributions:
-            d._set("_populated", False) # these come in as partials
+        ndist = [ Distribution(self._client, d) for d in self.distributions ]
+        self._set('distributions', ndist)
 
     def _serialize(self):
         dct = Base._serialize(self)

@@ -1,10 +1,11 @@
 from .. import Base, Property
-from .. import Linode, StackScript
+from .. import Linode, StackScript, Domain, Volume
+from linode.objects.nodebalancer.nodebalancer import NodeBalancer
+from linode.objects.support.ticket import SupportTicket
 
 from random import choice
 
 class Event(Base):
-    api_name = 'events'
     api_endpoint = '/account/events/{id}'
     properties = {
         'id': Property(identifier=True),
@@ -13,31 +14,49 @@ class Event(Base):
         'updated': Property(is_datetime=True, filterable=True),
         'seen': Property(),
         'read': Property(),
-        'linode_id': Property(),
-        'stackscript_id': Property(),
-        'nodebalancer_id': Property(),
-        'type': Property(),
+        'action': Property(),
         'user_id': Property(),
         'username': Property(),
         'entity': Property(),
         'time_remaining': Property(),
         'rate': Property(),
+        'status': Property(),
     }
 
     @property
     def linode(self):
-        if self.linode_id is not None:
-            return Linode(self._client, self.linode_id)
+        if self.entity and self.entity.type == 'linode':
+            return Linode(self._client, self.entity.id)
         return None
 
     @property
     def stackscript(self):
-        if self.stackscript_id is not None:
-            return Stackscript(self._client, self.stackscript_id)
+        if self.entity and self.entity.type == 'stackscript':
+            return Stackscript(self._client, self.entity.id)
+        return None
+
+    @property
+    def domain(self):
+        if self.entity and self.entity.type == 'domain':
+            return Domain(self._client, self.entity.id)
         return None
 
     @property
     def nodebalancer(self):
+        if self.entity and self.entity.type == 'nodebalancer':
+            return NodeBalancer(self._client, self.entity.id)
+        return None
+
+    @property
+    def ticket(self):
+        if self.entity and self.entity.type == 'ticket':
+            return SupportTicket(self._client, self.entity.id)
+        return None
+
+    @property
+    def volume(self):
+        if self.entity and self.entity.type == 'volume':
+            return Volume(self._client, self.entity.id)
         return None
 
     def mark_read(self):
