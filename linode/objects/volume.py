@@ -1,9 +1,11 @@
-from ...errors import UnexpectedResponseError
-from .. import Base, Property, Region
-from . import Linode
+from __future__ import absolute_import
+
+from linode.errors import UnexpectedResponseError
+from linode.objects import Base, Linode, Property, Region
+
 
 class Volume(Base):
-    api_endpoint = '/linode/volumes/{id}'
+    api_endpoint = '/volumes/{id}'
 
     properties = {
         'id': Property(identifier=True),
@@ -36,7 +38,7 @@ class Volume(Base):
         """
         Detaches this Volume if it is attached
         """
-        result = self._client.post('{}/detach'.format(Volume.api_endpoint), model=self)
+        self._client.post('{}/detach'.format(Volume.api_endpoint), model=self)
 
         return True
 

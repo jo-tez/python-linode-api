@@ -1,4 +1,7 @@
-from .. import DerivedBase, Property, Base, Region
+from __future__ import absolute_import
+
+from linode.objects import Base, DerivedBase, Property, Region
+
 
 class Backup(DerivedBase):
     api_endpoint = '/linode/instances/{linode_id}/backups/{id}'
@@ -9,6 +12,7 @@ class Backup(DerivedBase):
         'id': Property(identifier=True),
         'created': Property(is_datetime=True),
         'duration': Property(),
+        'updated': Property(is_datetime=True),
         'finished': Property(is_datetime=True),
         'message': Property(),
         'status': Property(volatile=True),
@@ -17,7 +21,6 @@ class Backup(DerivedBase):
         'label': Property(),
         'configs': Property(),
         'disks': Property(),
-        'availability': Property(),
         'region': Property(slug_relationship=Region),
     }
 
@@ -27,6 +30,6 @@ class Backup(DerivedBase):
         }
         d.update(kwargs)
 
-        result = self._client.post("{}/restore".format(Backup.api_endpoint), model=self,
+        self._client.post("{}/restore".format(Backup.api_endpoint), model=self,
             data=d)
         return True

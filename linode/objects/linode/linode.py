@@ -1,21 +1,21 @@
+from __future__ import absolute_import
+
+from datetime import datetime
 import string
-
-from ...errors import UnexpectedResponseError
-from .. import Base, Property
-from ..base import MappedObject
-from .disk import Disk
-from .config import Config
-from .backup import Backup
-from .linode_type import Type
-from .. import Region
-from .distribution import Distribution
-from ..networking import IPAddress
-from ..networking import IPv6Address
-from ..networking import IPv6Pool
-from ...paginated_list import PaginatedList
-from ...common import load_and_validate_keys
-
 from random import choice
+
+from linode.common import load_and_validate_keys
+from linode.errors import UnexpectedResponseError
+from linode.objects import Base, Image, Property, Region
+from linode.objects.base import MappedObject
+from linode.objects.networking import IPAddress, IPv6Pool
+from linode.paginated_list import PaginatedList
+
+from .backup import Backup
+from .config import Config
+from .disk import Disk
+from .linode_type import Type
+
 
 class Linode(Base):
     api_endpoint = '/linode/instances/{id}'
@@ -28,7 +28,7 @@ class Linode(Base):
         'updated': Property(volatile=True, is_datetime=True),
         'region': Property(slug_relationship=Region, filterable=True),
         'alerts': Property(),
-        'distribution': Property(slug_relationship=Distribution, filterable=True),
+        'image': Property(slug_relationship=Image, filterable=True),
         'disks': Property(derived_class=Disk),
         'configs': Property(derived_class=Config),
         'type': Property(slug_relationship=Type),
@@ -68,11 +68,13 @@ class Linode(Base):
 
             v6 = []
             for c in result['ipv6']['addresses']:
-                i = IPv6Address(self._client, c['address'], c)
+                i = IPAddress(self._client, c['address'], c)
                 v6.append(i)
 
-            slaac = IPv6Pool(self._client, result['ipv6']['slaac'])
-            link_local = IPv6Pool(self._client, result['ipv6']['link_local'])
+            slaac = IPAddress(self._client, result['ipv6']['slaac']['address'],
+                              result['ipv6']['slaac'])
+            link_local = IPAddress(self._client, result['ipv6']['link_local']['address'],
+                                   result['ipv6']['link_local'])
 
             pools = []
             for p in result['ipv6']['global']:
@@ -104,17 +106,13 @@ class Linode(Base):
         if not hasattr(self, '_avail_backups'):
             result = self._client.get("{}/backups".format(Linode.api_endpoint), model=self)
 
-            if not 'daily' in result:
+            if not 'automatic' in result:
                 raise UnexpectedResponseError('Unexpected response loading available backups!', json=result)
 
-            daily = None
-            if result['daily']:
-                daily = Backup(self._client, result['daily']['id'], self.id, result['daily'])
-
-            weekly = []
-            for w in result['weekly']:
-                cur = Backup(self._client, w['id'], self.id, w)
-                weekly.append(cur)
+            automatic = []
+            for a in result['automatic']:
+                cur = Backup(self._client, a['id'], self.id, a)
+                automatic.append(cur)
 
             snap = None
             if result['snapshot']['current']:
@@ -127,8 +125,7 @@ class Linode(Base):
                         result['snapshot']['in_progress'])
 
             self._set('_avail_backups', MappedObject(**{
-                "daily": daily,
-                "weekly": weekly,
+                "automatic": automatic,
                 "snapshot": {
                     "current": snap,
                     "in_progress": psnap,
@@ -200,7 +197,7 @@ class Linode(Base):
 
         :returns: A new Linode Config
         """
-        from .volume import Volume
+        from ..volume import Volume
 
         hypervisor_prefix = 'sd' if self.hypervisor == 'kvm' else 'xvd'
         device_names = [hypervisor_prefix + string.ascii_lowercase[i] for i in range(0, 8)]
@@ -263,18 +260,18 @@ class Linode(Base):
         c = Config(self._client, result['id'], self.id, result)
         return c
 
-    def create_disk(self, size, label=None, filesystem=None, read_only=False, distribution=None, \
+    def create_disk(self, size, label=None, filesystem=None, read_only=False, image=None,
             root_pass=None, authorized_keys=None, stackscript=None, **stackscript_args):
 
         gen_pass = None
-        if distribution and not root_pass:
+        if image and not root_pass:
             gen_pass  = Linode.generate_root_password()
             root_pass = gen_pass
 
         authorized_keys = load_and_validate_keys(authorized_keys)
 
-        if distribution and not label:
-            label = "My {} Disk".format(distribution.label)
+        if image and not label:
+            label = "My {} Disk".format(image.label)
 
         params = {
             'size': size,
@@ -284,9 +281,9 @@ class Linode(Base):
             'authorized_keys': authorized_keys,
         }
 
-        if distribution:
+        if image:
             params.update({
-                'distribution': distribution.id if issubclass(type(distribution), Base) else distribution,
+                'image': image.id if issubclass(type(image), Base) else image,
                 'root_pass': root_pass,
             })
 
@@ -341,7 +338,7 @@ class Linode(Base):
         i = IPAddress(self._client, result['address'], result)
         return i
 
-    def rebuild(self, distribution, root_pass=None, authorized_keys=None, **kwargs):
+    def rebuild(self, image, root_pass=None, authorized_keys=None, **kwargs):
         ret_pass = None
         if not root_pass:
             ret_pass = Linode.generate_root_password()
@@ -350,7 +347,7 @@ class Linode(Base):
         authorized_keys = load_and_validate_keys(authorized_keys)
 
         params = {
-             'distribution': distribution.id if issubclass(type(distribution), Base) else distribution,
+             'image': image.id if issubclass(type(image), Base) else image,
              'root_pass': root_pass,
              'authorized_keys': authorized_keys,
          }
@@ -396,7 +393,7 @@ class Linode(Base):
             "ips": params
         }
 
-        result = self._client.post('{}/ips/sharing'.format(Linode.api_endpoint), model=self,
+        self._client.post('{}/ips/sharing'.format(Linode.api_endpoint), model=self,
                 data=params)
 
         # so the changes show up next time they're accessed
@@ -409,7 +406,7 @@ class Linode(Base):
         """
         Converts this linode to KVM from Xen
         """
-        ret = self._client.post('{}/kvmify'.format(Linode.api_endpoint), model=self)
+        self._client.post('{}/kvmify'.format(Linode.api_endpoint), model=self)
 
         return True
 
@@ -417,7 +414,7 @@ class Linode(Base):
         """
         Upgrades this Linode to the latest generation type
         """
-        ret = self._client.post('{}/mutate'.format(Linode.api_endpoint), model=self)
+        self._client.post('{}/mutate'.format(Linode.api_endpoint), model=self)
 
         return True
 

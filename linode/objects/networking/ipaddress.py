@@ -1,8 +1,10 @@
-from .. import Base, Property
-from ..region import Region
+from __future__ import absolute_import
+
+from linode.objects import Base, Property, Region
+
 
 class IPAddress(Base):
-    api_endpoint = '/networking/ipv4/{address}'
+    api_endpoint = '/networking/ips/{address}'
     id_attribute = 'address'
 
     properties = {

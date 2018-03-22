@@ -1,8 +1,9 @@
-import os
-import requests
+from __future__ import absolute_import
 
-from ...errors import ApiError, UnexpectedResponseError
+import requests
+from linode.errors import ApiError, UnexpectedResponseError
 from linode.objects import Base, Property
+
 
 class OAuthClient(Base):
     api_endpoint = "/account/oauth-clients/{id}"
@@ -43,13 +44,12 @@ class OAuthClient(Base):
                 headers=headers)
 
         if not result.status_code == 200:
-            return False # TODO - handle this better?
+            raise ApiError('No thumbnail found for OAuthClient {}'.format(self.id))
 
         if dump_to:
             with open(dump_to, 'wb+') as f:
                 f.write(result.content)
-        else:
-            return result.content
+        return result.content
 
     def set_thumbnail(self, thumbnail):
         """

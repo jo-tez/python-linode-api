@@ -1,5 +1,7 @@
-from .. import DerivedBase, Property
-from ..base import MappedObject
+from __future__ import absolute_import
+
+from linode.objects import DerivedBase, Property
+
 
 class NodeBalancerNode(DerivedBase):
     api_endpoint = '/nodebalancers/{nodebalancer_id}/configs/{config_id}/nodes/{id}'

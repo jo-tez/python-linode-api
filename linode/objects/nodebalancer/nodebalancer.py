@@ -1,9 +1,11 @@
-from .. import Base, Property
-from ..base import MappedObject
-from ..networking.ipaddress import IPAddress
-from ..region import Region
+from __future__ import absolute_import
+
+from linode.errors import UnexpectedResponseError
+from linode.objects import Base, Property, Region
+from linode.objects.networking import IPAddress
 
 from .config import NodeBalancerConfig
+
 
 class NodeBalancer(Base):
     api_endpoint = '/nodebalancers/{id}'

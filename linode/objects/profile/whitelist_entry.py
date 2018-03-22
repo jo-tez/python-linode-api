@@ -1,5 +1,7 @@
-from ...errors import UnexpectedResponseError
-from .. import Base, Property
+from __future__ import absolute_import
+
+from linode.objects import Base, Property
+
 
 class WhitelistEntry(Base):
     api_endpoint = "/profile/whitelist/{id}"
@@ -10,4 +12,3 @@ class WhitelistEntry(Base):
         'netmask': Property(),
         'note': Property(),
     }
-

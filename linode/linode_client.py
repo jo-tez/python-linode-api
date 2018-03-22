@@ -1,25 +1,29 @@
+from __future__ import absolute_import
+
 import json
-import requests
-import pkg_resources
+import logging
 from datetime import datetime
 
+import pkg_resources
+import requests
 from linode.errors import ApiError, UnexpectedResponseError
 from linode.objects import *
-from linode.objects.base import MappedObject
 from linode.objects.filtering import Filter
-from .paginated_list import PaginatedList
-from .common import load_and_validate_keys
 
-package_version = pkg_resources.require("linode-api")[0].version,
+from .common import load_and_validate_keys
+from .paginated_list import PaginatedList
+
+package_version = pkg_resources.require("linode-api")[0].version
+
+logger = logging.getLogger(__name__)
+
 
 class Group:
     def __init__(self, client):
         self.client = client
 
-class LinodeGroup(Group):
-    def get_distributions(self, *filters):
-        return self.client._get_and_filter(Distribution, *filters)
 
+class LinodeGroup(Group):
     def get_types(self, *filters):
         return self.client._get_and_filter(Type, *filters)
 
@@ -47,35 +51,8 @@ class LinodeGroup(Group):
     def get_kernels(self, *filters):
         return self.client._get_and_filter(Kernel, *filters)
 
-    def get_volumes(self, *filters):
-        return self.client._get_and_filter(Volume, *filters)
-
-    def create_volume(self, label, region=None, linode=None, size=20, **kwargs):
-        """
-        Creates a new Block Storage Volume, either in the given region, or attached
-        to the given linode.
-        """
-        if not (region or linode):
-            raise ValueError('region or linode required!')
-
-        params = {
-            "label": label,
-            "size": size,
-            "region": region.id if issubclass(type(region), Base) else region,
-            "linode_id": linode.id if issubclass(type(linode), Base) else linode,
-        }
-        params.update(kwargs)
-
-        result = self.client.post('/linode/volumes', data=params)
-
-        if not 'id' in result:
-            raise UnexpectedResponseError('Unexpected response when creating volume!', json=result)
-
-        v = Volume(self.client, result['id'], result)
-        return v
-
     # create things
-    def create_instance(self, ltype, region, distribution=None,
+    def create_instance(self, ltype, region, image=None,
             authorized_keys=None, **kwargs):
         """
         Creates a new Linode.  This takes a number of parameters in **kwargs
@@ -85,7 +62,7 @@ class LinodeGroup(Group):
 
         :param ltype: The Linode Type we are creating
         :param region: The Region in which we are creating the Linode
-        :param distribution: The distribution to deploy to this Linode
+        :param image: The image to deploy to this Linode
         :param authorized_keys: The ssh public keys to install on the linode's
                                 /root/.ssh/authorized_keys file
         :param **kwargs: Any other fields to pass to the api
@@ -97,7 +74,7 @@ class LinodeGroup(Group):
                                          an outdated library.
         """
         ret_pass = None
-        if distribution and not 'root_pass' in kwargs:
+        if image and not 'root_pass' in kwargs:
             ret_pass = Linode.generate_root_password()
             kwargs['root_pass'] = ret_pass
 
@@ -106,7 +83,7 @@ class LinodeGroup(Group):
         params = {
              'type': ltype.id if issubclass(type(ltype), Base) else ltype,
              'region': region.id if issubclass(type(region), Base) else region,
-             'distribution': (distribution.id if issubclass(type(distribution), Base) else distribution) if distribution else None,
+             'image': (image.id if issubclass(type(image), Base) else image) if image else None,
              'authorized_keys': authorized_keys,
          }
         params.update(kwargs)
@@ -121,16 +98,16 @@ class LinodeGroup(Group):
             return l
         return l, ret_pass
 
-    def create_stackscript(self, label, script, distros, desc=None, public=False, **kwargs):
-        distro_list = None
-        if type(distros) is list or type(distros) is PaginatedList:
-            distro_list = [ d.id if issubclass(type(d), Base) else d for d in distros ]
-        elif type(distros) is Distribution:
-            distro_list = [ distros.id ]
-        elif type(distros) is str:
-            distro_list = [ distros ]
+    def create_stackscript(self, label, script, images, desc=None, public=False, **kwargs):
+        image_list = None
+        if type(images) is list or type(images) is PaginatedList:
+            image_list = [d.id if issubclass(type(d), Base) else d for d in images ]
+        elif type(images) is Image:
+            image_list = [images.id]
+        elif type(images) is str:
+            image_list = [images]
         else:
-            raise ValueError('distros must be a list of Distributions or a single Distribution')
+            raise ValueError('images must be a list of Images or a single Image')
 
         script_body = script
         if not script.startswith("#!"):
@@ -144,7 +121,7 @@ class LinodeGroup(Group):
 
         params = {
             "label": label,
-            "distributions": distro_list,
+            "image": image_list,
             "is_public": public,
             "script": script_body,
             "description": desc if desc else '',
@@ -231,6 +208,12 @@ class LongviewGroup(Group):
         c = LongviewClient(self.client, result['id'], result)
         return c
 
+    def get_subscriptions(self, *filters):
+        """
+        Requests and returns a paginated list of LongviewSubscriptions available
+        """
+        return self.client._get_and_filter(LongviewSubscription, *filters)
+
 
 class AccountGroup(Group):
     def get_events(self, *filters):
@@ -251,11 +234,11 @@ class AccountGroup(Group):
         """
         result = self.client.get('/account/settings')
 
-        if not 'email' in result:
+        if not 'managed' in result:
             raise UnexpectedResponseError('Unexpected response when getting account settings!',
                     json=result)
 
-        s = AccountSettings(self.client, result['email'], result)
+        s = AccountSettings(self.client, result['managed'], result)
         return s
 
     def get_invoices(self):
@@ -331,10 +314,13 @@ def create_user(self, email, username, password, restricted=True):
     return u
 
 class NetworkingGroup(Group):
-    def get_ipv4(self, *filters):
+    def get_ips(self, *filters):
         return self.client._get_and_filter(IPAddress, *filters)
 
     def get_ipv6_ranges(self, *filters):
+        return self.client._get_and_filter(IPv6Range, *filters)
+
+    def get_ipv6_pools(self, *filters):
         return self.client._get_and_filter(IPv6Pool, *filters)
 
     def assign_ips(self, region, *assignments):
@@ -367,7 +353,7 @@ class NetworkingGroup(Group):
             ips.append(i)
 
         return ips
-    
+
     def allocate_ip(self, linode):
         result = self.client.post('/networking/ipv4/', data={
             "linode_id": linode.id if isinstance(linode, Base) else linode,
@@ -469,24 +455,33 @@ class LinodeClient:
         if filters:
             headers['X-Filter'] = json.dumps(filters)
 
-        body = json.dumps(data)
+        body = None
+        if data is not None:
+            body = json.dumps(data)
 
-        r = method(url, headers=headers, data=body)
+        response = method(url, headers=headers, data=body)
 
-        if 399 < r.status_code < 600:
+        warning = response.headers.get('Warning', None)
+        if warning:
+            logger.warning('Received warning from server: {}'.format(warning))
+
+        if 399 < response.status_code < 600:
             j = None
-            error_msg = '{}: '.format(r.status_code)
+            error_msg = '{}: '.format(response.status_code)
             try:
-                j = r.json()
+                j = response.json()
                 if 'errors' in j.keys():
                     for e in j['errors']:
                         error_msg += '{}; '.format(e['reason']) \
                                 if 'reason' in e.keys() else ''
             except:
                 pass
-            raise ApiError(error_msg, status=r.status_code, json=j)
+            raise ApiError(error_msg, status=response.status_code, json=j)
 
-        j = r.json()
+        if response.status_code != 204:
+            j = response.json()
+        else:
+            j = None # handle no response body
 
         return j
 
@@ -534,6 +529,42 @@ class LinodeClient:
         p = Profile(self, result['username'], result)
         return p
 
+    def get_account(self):
+        """
+        Returns account billing information
+        """
+        result = self.get('/account')
+
+        if not 'email' in result:
+            raise UnexpectedResponseError('Unexpected response when getting account!', json=result)
+
+        return Account(self, result['email'], result)
+
+    def get_images(self, *filters):
+        return self._get_and_filter(Image, *filters)
+
+    def create_image(self, disk, label=None, description=None):
+        """
+        Creates a new Image from a disk you own.
+        """
+        params = {
+            "disk_id": disk.id if issubclass(type(disk), Base) else disk,
+        }
+
+        if label is not None:
+            params["label"] = label
+
+        if description is not None:
+            params["description"] = description
+
+        result = self.post('/images', data=params)
+
+        if not 'id' in result:
+            raise UnexpectedResponseError('Unexpected response when creating an '
+                                          'Image from disk {}'.format(disk))
+
+        return Image(self, result['id'], result)
+
     def get_domains(self, *filters):
         return self._get_and_filter(Domain, *filters)
 
@@ -569,6 +600,33 @@ class LinodeClient:
         d = Domain(self, result['id'], result)
         return d
 
+    def get_volumes(self, *filters):
+        return self._get_and_filter(Volume, *filters)
+
+    def create_volume(self, label, region=None, linode=None, size=20, **kwargs):
+        """
+        Creates a new Block Storage Volume, either in the given region, or attached
+        to the given linode.
+        """
+        if not (region or linode):
+            raise ValueError('region or linode required!')
+
+        params = {
+            "label": label,
+            "size": size,
+            "region": region.id if issubclass(type(region), Base) else region,
+            "linode_id": linode.id if issubclass(type(linode), Base) else linode,
+        }
+        params.update(kwargs)
+
+        result = self.post('/volumes', data=params)
+
+        if not 'id' in result:
+            raise UnexpectedResponseError('Unexpected response when creating volume!', json=result)
+
+        v = Volume(self, result['id'], result)
+        return v
+
     # helper functions
     def _filter_list(self, results, **filter_by):
         if not results or not len(results):
@@ -593,7 +651,7 @@ class LinodeClient:
         parsed_filters = None
         if filters:
             if(len(filters) > 1):
-                parsed_filters = and_(*filters).dct
+                parsed_filters = and_(*filters).dct # pylint: disable=no-value-for-parameter
             else:
                 parsed_filters = filters[0].dct
 

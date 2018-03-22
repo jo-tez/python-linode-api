@@ -1,10 +1,7 @@
-from .. import mappings
-from .filtering import FilterableMetaclass
-
-#from future.utils import with_metaclass
-from six import add_metaclass
-from datetime import datetime, timedelta
 import time
+from datetime import datetime, timedelta
+
+from future.utils import with_metaclass
 
 from .filtering import FilterableMetaclass
 
@@ -169,11 +166,11 @@ class Base(object):
         Invalidates all non-identifier Properties this object has locally,
         causing the next access to re-fetch them from the server
         """
-        for key in (k for k in type(self).properties.keys()
-            if not type(self).properties[k].identifier):
-                self._set(key, None)
+        for key in [k for k in type(self).properties.keys()
+                if not type(self).properties[k].identifier]:
+            self._set(key, None)
 
-        self._populated = False
+        self._set('_populated', False)
 
     def _serialize(self):
         """
@@ -239,8 +236,10 @@ class Base(object):
                 elif type(json[key]) is dict:
                     self._set(key, MappedObject(**json[key]))
                 elif type(json[key]) is list:
+                    # we're going to use MappedObject's behavior with lists to
+                    # expand these, then grab the resulting value to set
                     mapping = MappedObject(_list=json[key])
-                    self._set(key, mapping._list)
+                    self._set(key, mapping._list) # pylint: disable=no-member
                 elif type(self).properties[key].is_datetime:
                     try:
                         t = time.strptime(json[key], "%Y-%m-%dT%H:%M:%S")
